@@ -8,7 +8,7 @@ main() async {
 
   final path = 'big_file.txt';
   if (!File(path).existsSync()) {
-    File(path).writeAsString("10000" * 10000000, flush: true);
+    File(path).writeAsString("big file\n" * 10000000, flush: true);
   }
 
   final file = File(path);
