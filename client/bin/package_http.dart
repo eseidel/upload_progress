@@ -1,27 +1,48 @@
+import 'dart:async';
 import 'dart:io';
+import 'package:http/http.dart' as http;
 
-import 'package:http/http.dart';
-
-main() async {
+void main() async {
   final path = 'big_file.txt';
   if (!File(path).existsSync()) {
     File(path).writeAsString("big file\n" * 10000000, flush: true);
   }
 
-  final file = File(path);
-  final FileStat stat = file.statSync();
-  final length = stat.size;
-  var uploaded = 0;
-
-  var stream = file.openRead().map((chunk) {
-    uploaded += chunk.length;
-    print("Uploaded ${((uploaded / length) * 100.0).toStringAsFixed(2)}%");
-    return chunk;
-  });
-  final multipartFile = MultipartFile('file', stream, length, filename: path);
-
+  final multipartFile = await http.MultipartFile.fromPath('file', path);
   final uri = Uri.http('localhost:8000', 'upload');
-  var request = MultipartRequest('POST', uri)..files.add(multipartFile);
-  var response = await request.send();
+  final request = MultipartRequest('POST', uri, onProgress: (bytes, total) {
+    print('Uploaded ${((bytes / total) * 100.0).toStringAsFixed(2)}%');
+  })
+    ..files.add(multipartFile);
+  print('sending request');
+  final response = await request.send();
   if (response.statusCode == 200) print('Uploaded!');
+}
+
+class MultipartRequest extends http.MultipartRequest {
+  MultipartRequest(
+    String method,
+    Uri url, {
+    this.onProgress,
+  }) : super(method, url);
+
+  final void Function(int bytes, int totalBytes)? onProgress;
+
+  @override
+  http.ByteStream finalize() {
+    if (onProgress == null) return super.finalize();
+    final byteStream = super.finalize();
+
+    final totalBytes = contentLength;
+    var bytes = 0;
+
+    final transformer = StreamTransformer.fromHandlers(
+      handleData: (List<int> data, EventSink<List<int>> sink) {
+        bytes += data.length;
+        onProgress?.call(bytes, totalBytes);
+        sink.add(data);
+      },
+    );
+    return http.ByteStream(byteStream.transform(transformer));
+  }
 }
